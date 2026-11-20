@@ -1,0 +1,2046 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>PromptStudio &amp; Audio Lab — MVP Grounding &amp; Sidecar</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%236366f1'/%3E%3Cpath d='M22 58V42M36 70V30M50 62V38M64 78V22M78 58V42' stroke='%23020617' stroke-width='9' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace']
+        }
+      }
+    }
+  };
+</script>
+<style>
+  :root { color-scheme: dark; }
+  html { scroll-behavior: smooth; }
+  html, body { overflow-x: hidden; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  textarea { resize: vertical; }
+  input[type="checkbox"] { accent-color: #6366f1; }
+  .bench-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  @media (max-width: 1049px) { .bench-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (min-width: 1050px) { .history-list { max-height: calc(100vh - 250px); overflow-y: auto; } }
+  .scroll-thin { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+  .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+  .clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+  .toast-in { animation: toastIn 0.18s ease-out; }
+  .star { transition: color 0.12s ease, transform 0.12s ease; line-height: 1; }
+  .star:hover { transform: scale(1.12); }
+  pre { tab-size: 2; }
+</style>
+</head>
+<body class="min-h-full bg-slate-950 text-slate-100 antialiased">
+
+<header class="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+  <div class="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+      <div class="flex min-w-0 items-center gap-3">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-400 text-slate-950 shadow-lg shadow-indigo-500/20">
+          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M4 14v-4M8 18V6M12 16V8M16 20V4M20 14v-4"></path>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <h1 class="truncate text-base font-semibold tracking-tight text-white sm:text-lg">PromptStudio <span class="text-slate-500">&amp;</span> Audio Lab</h1>
+          <p class="truncate text-[11px] text-slate-400">MVP Grounding &amp; Sidecar Edition · Local-First</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2" title="Orçamento diário do Suno (reset automático na virada do dia)">
+          <div class="leading-tight">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500">Orçamento Suno</p>
+            <p class="font-mono text-xs text-slate-200"><span id="budgetUsed">0</span> / <span id="budgetMax">50</span> créditos</p>
+          </div>
+          <div class="h-1.5 w-20 overflow-hidden rounded-full bg-slate-800">
+            <div id="budgetBar" class="h-full w-0 rounded-full bg-emerald-500 transition-all"></div>
+          </div>
+          <span id="budgetReset" class="hidden text-[10px] text-slate-500 sm:inline"></span>
+        </div>
+
+        <button id="btnTags" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400/60">
+          <span aria-hidden="true">⌗</span> Gerenciar Tags
+        </button>
+        <button id="btnExportBackup" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400/60">
+          <span aria-hidden="true">↓</span> Exportar Backup
+        </button>
+        <button id="btnImportBackup" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400/60">
+          <span aria-hidden="true">↑</span> Importar Backup
+        </button>
+        <input id="backupFile" type="file" accept="application/json,.json" class="hidden">
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <label for="projectSelect" class="text-[11px] uppercase tracking-wider text-slate-500">Projeto</label>
+        <select id="projectSelect" class="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 sm:w-auto sm:min-w-[230px] sm:max-w-[360px]"></select>
+        <button id="btnNewProject" type="button" class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/50">+ Novo</button>
+        <button id="btnEditProject" type="button" class="rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50">Editar</button>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="modeHint" class="hidden text-[11px] text-slate-500 lg:inline">Bancada enxuta: style prompt e letra sempre acessíveis.</span>
+        <span class="text-[11px] uppercase tracking-wider text-slate-500">Modo</span>
+        <div class="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1" role="group" aria-label="Modo do aplicativo">
+          <button id="modeQuick" type="button" aria-pressed="true">Rápido</button>
+          <button id="modeStudio" type="button" aria-pressed="false">Estúdio</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="mx-auto max-w-[1500px] px-4 py-5">
+  <div class="bench-grid">
+    <div id="benchColumn" class="min-w-0 scroll-mt-32 space-y-4">
+
+      <section id="constitutionPanel" data-studio-only class="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-indigo-500/10 via-slate-900 to-slate-900 p-4 sm:p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500/20 text-xs text-indigo-300" aria-hidden="true">◈</span>
+            Constituição Sonora do Projeto
+          </h2>
+          <button id="btnEditProjectConst" type="button" class="rounded-md border border-indigo-400/40 bg-indigo-500/10 px-2 py-1 text-[11px] font-semibold text-indigo-200 transition hover:bg-indigo-500/20">Editar projeto</button>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500">Gênero-âncora</p>
+            <p id="constGenre" class="mt-0.5 truncate text-sm text-slate-200">—</p>
+          </div>
+          <div class="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500">Afinação / BPM padrão</p>
+            <p id="constTuning" class="mt-0.5 truncate font-mono text-sm text-slate-200">—</p>
+          </div>
+        </div>
+        <div class="mt-3">
+          <p class="mb-1.5 text-[10px] uppercase tracking-wider text-slate-500">Paleta base</p>
+          <div id="constPalette" class="flex flex-wrap gap-1.5"></div>
+        </div>
+        <div class="mt-3">
+          <p class="mb-1.5 text-[10px] uppercase tracking-wider text-slate-500">Exclusões negativas herdadas</p>
+          <div id="constGuardrails" class="flex flex-wrap gap-1.5"></div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/15 text-xs text-emerald-300" aria-hidden="true">⚙</span>
+            Controles da Geração
+          </h2>
+          <span id="benchProjectPill" class="max-w-full truncate rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-400">—</span>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <label for="engineSelect" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Motor de execução</label>
+            <select id="engineSelect" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+              <option value="Suno AI">Suno AI</option>
+              <option value="Flow Music (Lyria 3.5)">Flow Music (Lyria 3.5)</option>
+              <option value="REAPER / DAW">REAPER / DAW</option>
+            </select>
+          </div>
+
+          <div data-studio-only>
+            <label for="trackLabel" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Identificação da faixa</label>
+            <input id="trackLabel" type="text" placeholder="Faixa 03 — Autonomous" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+          </div>
+
+          <div>
+            <label for="tuningInput" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Afinação / BPM</label>
+            <input id="tuningInput" type="text" placeholder="F# Phrygian | 108 BPM" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+          </div>
+
+          <div data-studio-only class="sm:col-span-2">
+            <label for="engineParams" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Parâmetros do motor</label>
+            <input id="engineParams" type="text" placeholder="Cover 65%, Strangeness 35%, Extend…" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+          </div>
+
+          <div data-studio-only class="sm:col-span-2">
+            <label for="mediaRef" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Referência DAW / Stems</label>
+            <input id="mediaRef" type="text" placeholder="sessao.rpp ou https://suno.com/song/..." class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+          </div>
+        </div>
+
+        <fieldset class="mt-4">
+          <legend class="mb-1.5 text-[11px] uppercase tracking-wider text-slate-500">Escopo da geração <span class="normal-case text-slate-600">(0 a 4 livres)</span></legend>
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 transition hover:border-indigo-500/60">
+              <input type="checkbox" class="scope-check h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500/50" value="seed">
+              <span>Seed</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 transition hover:border-indigo-500/60">
+              <input type="checkbox" class="scope-check h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500/50" value="timbre">
+              <span>Timbre</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 transition hover:border-indigo-500/60">
+              <input type="checkbox" class="scope-check h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500/50" value="estrutura">
+              <span>Estrutura</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 transition hover:border-indigo-500/60">
+              <input type="checkbox" class="scope-check h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500/50" value="vocal">
+              <span>Vocal</span>
+            </label>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/15 text-xs text-amber-300" aria-hidden="true">✎</span>
+            Style Prompt
+          </h2>
+          <span id="styleCountWrap" class="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 font-mono text-[11px] text-slate-300">
+            <span id="styleDot" class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+            <span id="styleCount">0 chars</span>
+          </span>
+        </div>
+        <p class="mb-2 text-[11px] text-slate-500">Gênero, timbre, afinação, BPM e textura. Suno AI: mire em até 120 caracteres, sem palavras genéricas.</p>
+
+        <label for="tagFinderInput" class="sr-only">Buscar tag da base</label>
+        <div class="relative mb-2">
+          <input id="tagFinderInput" list="styleDatalist" type="text" placeholder="Buscar tag da base (afinações, gêneros, texturas) e pressionar Enter…" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 pr-9 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-600" aria-hidden="true">↵</span>
+        </div>
+        <datalist id="styleDatalist"></datalist>
+
+        <label for="stylePrompt" class="sr-only">Style Prompt</label>
+        <textarea id="stylePrompt" list="styleDatalist" rows="4" spellcheck="false" placeholder="gothic doom metal, f# phrygian mode, 108 bpm, clean chorus bass…" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm leading-relaxed text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></textarea>
+
+        <div class="mt-3">
+          <p class="mb-1.5 text-[10px] uppercase tracking-wider text-slate-500">Paleta do projeto (clique para adicionar)</p>
+          <div id="paletteChips" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
+        <div class="mt-3 flex justify-end">
+          <button id="btnCopyStyle" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800">⧉ Copiar Style</button>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-rose-500/15 text-xs text-rose-300" aria-hidden="true">♫</span>
+            Letra &amp; Metatags
+          </h2>
+          <span id="lyricsCount" class="font-mono text-[11px] text-slate-500">0 chars</span>
+        </div>
+        <div class="mb-2 space-y-2">
+          <div>
+            <p class="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Metatags estruturais</p>
+            <div id="metaChips" class="flex flex-wrap gap-1.5"></div>
+          </div>
+          <div>
+            <p class="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Modificadores vocais</p>
+            <div id="vocalChips" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+        <label for="lyricsInput" class="sr-only">Letra e metatags</label>
+        <textarea id="lyricsInput" rows="10" spellcheck="false" placeholder="[Intro]&#10;[Ambient Synth Pad, Fading In]&#10;(whispered vocals)&#10;...&#10;[End]" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs leading-relaxed text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></textarea>
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p class="text-[11px] text-slate-500">Clicar em um chip insere o texto exato na posição do cursor.</p>
+          <button id="btnCopyLyrics" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800">⧉ Copiar Letra/Tags</button>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500/15 text-xs text-indigo-300" aria-hidden="true">◉</span>
+            Pre-Flight Inspector
+          </h2>
+          <span id="preflightStatus" class="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] font-semibold text-slate-300">Aguardando</span>
+        </div>
+        <ul id="preflightList" class="space-y-2" aria-live="polite"></ul>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 sm:p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/15 text-xs text-emerald-300" aria-hidden="true">✧</span>
+            Registro &amp; Sidecar Gemini
+          </h2>
+          <span class="text-[11px] text-slate-500">Salve para alimentar o grounding</span>
+        </div>
+
+        <div class="grid gap-3">
+          <div class="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2.5">
+            <span class="text-[11px] uppercase tracking-wider text-slate-500">Nota</span>
+            <div id="benchStars" class="flex items-center gap-1"></div>
+            <span id="benchRatingLabel" class="text-xs text-slate-400">Sem nota</span>
+            <button id="btnClearRating" type="button" class="text-[11px] text-slate-600 underline decoration-slate-700 underline-offset-2 hover:text-slate-400">limpar</button>
+          </div>
+
+          <div>
+            <label for="perceptionNotes" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Notas de percepção / falhas</label>
+            <textarea id="perceptionNotes" rows="2" placeholder="O que funcionou ou falhou (timbre, entrada de bateria, alucinação de estrutura…)" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></textarea>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button id="btnSaveExperiment" type="button" class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 sm:flex-none">✓ Salvar Experimento</button>
+            <button id="btnClearBench" type="button" class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white">Limpar Bancada</button>
+          </div>
+
+          <div class="border-t border-slate-800 pt-3">
+            <p class="mb-2 text-[11px] text-slate-500">Ponte sidecar: envie a bancada + corpus para o Gemini e cole o patch de volta.</p>
+            <div class="flex flex-wrap gap-2">
+              <button id="btnCopyContext" type="button" class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 sm:flex-none">⧉ Copiar Contexto + Base</button>
+              <button id="btnOpenPatch" type="button" class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-4 py-2.5 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/20 sm:flex-none">⇩ Aplicar Patch (Smart Paste)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="min-w-0">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="flex h-6 w-6 items-center justify-center rounded-md bg-slate-700/50 text-xs text-slate-300" aria-hidden="true">≡</span>
+            Histórico Acumulado
+          </h2>
+          <span id="historyCount" class="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-slate-400">0</span>
+        </div>
+        <label for="historySearch" class="sr-only">Filtrar experimentos</label>
+        <input id="historySearch" type="search" placeholder="Filtrar por style, letra, nota ou faixa…" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+        <div id="historyList" class="history-list scroll-thin mt-3 space-y-3 pr-1"></div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="mt-5 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+    <div class="mb-2 flex flex-wrap items-start justify-between gap-2">
+      <div class="min-w-0">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+          <span class="flex h-6 w-6 items-center justify-center rounded-md bg-slate-700/50 text-xs text-slate-300" aria-hidden="true">▤</span>
+          Base de Conhecimento (Grounding Corpus)
+        </h2>
+        <p class="mt-1 max-w-3xl text-[11px] leading-relaxed text-slate-500">Texto limpo e visível de propósito (sem <code class="font-mono text-slate-400">display:none</code>), para leitura nativa pela barra lateral do Gemini.</p>
+      </div>
+      <div id="groundingCounts" class="flex flex-wrap gap-1.5"></div>
+    </div>
+    <pre id="groundingCorpus" class="scroll-thin mt-3 max-h-[540px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-300">Carregando…</pre>
+  </section>
+
+  <footer class="mx-auto mt-6 max-w-[1500px] px-1 pb-6 text-center text-[11px] text-slate-600">
+    PromptStudio &amp; Audio Lab · Local-first em <span class="font-mono text-slate-500">localStorage</span> · Sem backend, sem build, sem dependências externas.
+  </footer>
+</main>
+
+<div id="toastStack" class="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-[min(92vw,360px)] flex-col gap-2" aria-live="polite" aria-atomic="false"></div>
+
+<div id="projectModal" class="modal hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+  <div class="scroll-thin max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h3 id="projModalTitle" class="text-base font-semibold text-white">Novo projeto</h3>
+        <p class="mt-0.5 text-[11px] text-slate-500">A constituição é herdada por todos os experimentos do projeto.</p>
+      </div>
+      <button type="button" data-close-modal class="rounded-md px-2 py-1 text-lg leading-none text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="Fechar">×</button>
+    </div>
+    <form id="projectForm" class="mt-4 space-y-3">
+      <input id="projId" type="hidden">
+      <div>
+        <label for="projTitle" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Título do projeto *</label>
+        <input id="projTitle" type="text" required placeholder="Ex.: Álbum Void Cathedral" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label for="projGenre" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Gênero-âncora</label>
+          <input id="projGenre" type="text" placeholder="gothic doom metal" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+        </div>
+        <div>
+          <label for="projTuning" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Afinação / BPM padrão</label>
+          <input id="projTuning" type="text" placeholder="F# Phrygian | 108 BPM" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+        </div>
+      </div>
+      <div>
+        <label for="projPalette" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Tags de paleta (separadas por vírgula)</label>
+        <input id="projPalette" type="text" placeholder="clean chorus bass, tape hiss, analog synth pad 70s" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+      </div>
+      <div>
+        <label for="projGuardrails" class="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Exclusões negativas (separadas por vírgula)</label>
+        <input id="projGuardrails" type="text" placeholder="guitar shredding, operatic vocals" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+        <p class="mt-1 text-[11px] text-slate-600">O Pre-Flight alerta se qualquer termo aparecer no Style Prompt.</p>
+      </div>
+      <div class="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-3">
+        <button type="button" data-close-modal class="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Cancelar</button>
+        <button type="submit" class="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-400">Salvar projeto</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="tagsModal" class="modal hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+  <div class="scroll-thin max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h3 class="text-base font-semibold text-white">Pacotes de Tags</h3>
+        <p class="mt-0.5 text-[11px] text-slate-500">Biblioteca dinâmica usada pelo datalist e pelos chips de inserção.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="btnExportTags" type="button" class="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[11px] font-semibold text-slate-200 transition hover:bg-slate-800">↓ Exportar .json</button>
+        <button id="btnImportTags" type="button" class="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[11px] font-semibold text-slate-200 transition hover:bg-slate-800">↑ Importar .json</button>
+        <button id="btnRestoreTags" type="button" class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/20">↺ Restaurar base nativa</button>
+        <button type="button" data-close-modal class="rounded-md px-2 py-1 text-lg leading-none text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="Fechar">×</button>
+      </div>
+    </div>
+    <input id="tagImportFile" type="file" accept="application/json,.json" class="hidden">
+    <div id="tagsGrid" class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
+    <p class="mt-4 text-[11px] leading-relaxed text-slate-500">Importar permite <strong class="text-slate-300">Adicionar/Mesclar</strong> (união sem duplicatas via <span class="font-mono">Set</span>) ou <strong class="text-slate-300">Sobrescrever</strong> toda a biblioteca. O backup completo fica na Topbar.</p>
+  </div>
+</div>
+
+<div id="importTagsModal" class="modal hidden fixed inset-0 z-[60] items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">
+  <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+    <h3 class="text-base font-semibold text-white">Importar pacote de tags</h3>
+    <p class="mt-1 text-[11px] text-slate-500">Arquivo: <span id="importTagsName" class="font-mono text-slate-300">—</span></p>
+    <div id="tagImportOptions" class="mt-4 space-y-2">
+      <label class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-slate-300">
+        <input type="radio" name="tagImportMode" value="merge" checked class="mt-0.5">
+        <span><strong class="text-slate-100">Adicionar / Mesclar (Merge)</strong><br><span class="text-[11px] text-slate-500">União com a biblioteca atual, sem duplicatas.</span></span>
+      </label>
+      <label class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-slate-300">
+        <input type="radio" name="tagImportMode" value="replace" class="mt-0.5">
+        <span><strong class="text-slate-100">Sobrescrever (Replace)</strong><br><span class="text-[11px] text-slate-500">Substitui todo o dicionário atual pelo pacote.</span></span>
+      </label>
+    </div>
+    <div class="mt-4 flex justify-end gap-2 border-t border-slate-800 pt-3">
+      <button type="button" data-close-modal class="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Cancelar</button>
+      <button id="btnConfirmTagImport" type="button" class="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-400">Aplicar importação</button>
+    </div>
+  </div>
+</div>
+
+<div id="patchModal" class="modal hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+  <div class="scroll-thin max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-base font-semibold text-white">Aplicar Patch (Smart Paste)</h3>
+        <p class="mt-0.5 text-[11px] text-slate-500">Cole a resposta do Gemini com os blocos <span class="font-mono text-slate-300">===STYLE===</span> e <span class="font-mono text-slate-300">===LYRICS===</span>.</p>
+      </div>
+      <button type="button" data-close-modal class="rounded-md px-2 py-1 text-lg leading-none text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="Fechar">×</button>
+    </div>
+    <textarea id="patchText" rows="10" spellcheck="false" placeholder="===STYLE===&#10;gothic doom metal, f# phrygian mode, 108 bpm, clean chorus bass&#10;===LYRICS===&#10;[Intro]&#10;[Ambient Synth Pad, Fading In]&#10;...&#10;[End]" class="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs leading-relaxed text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"></textarea>
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <p class="text-[11px] text-slate-500">O parser ignora cercas markdown e dispara o Pre-Flight ao aplicar.</p>
+      <div class="flex gap-2">
+        <button type="button" data-close-modal class="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800">Cancelar</button>
+        <button id="btnApplyPatch" type="button" class="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-400">Aplicar Patch</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const KEYS = {
+    projects: 'promptstudio_mvp_v1_projects',
+    experiments: 'promptstudio_mvp_v1_experiments',
+    tags: 'promptstudio_mvp_v1_tags',
+    budget: 'promptstudio_mvp_v1_budget'
+  };
+
+  const ENGINE_SUNO = 'Suno AI';
+  const ENGINE_FLOW = 'Flow Music (Lyria 3.5)';
+  const ENGINE_DAW = 'REAPER / DAW';
+  const ENGINES = [ENGINE_SUNO, ENGINE_FLOW, ENGINE_DAW];
+
+  const SCOPES = [
+    { value: 'seed', label: 'Seed' },
+    { value: 'timbre', label: 'Timbre' },
+    { value: 'estrutura', label: 'Estrutura' },
+    { value: 'vocal', label: 'Vocal' }
+  ];
+
+  const TAG_CATEGORIES = [
+    { key: 'tunings', label: 'Afinações' },
+    { key: 'genres', label: 'Gêneros' },
+    { key: 'textures', label: 'Texturas' },
+    { key: 'metatags', label: 'Metatags' },
+    { key: 'vocals', label: 'Vocais' }
+  ];
+
+  const DEFAULT_TAGS_DATABASE = {
+    tunings: ['c-standard tuning', 'd-standard tuning', 'drop c', 'f# phrygian mode', 'locrian mode', 'g minor', 'e minor'],
+    genres: ['gothic doom metal', 'progressive djent metal', 'industrial metal', 'post-punk', 'dark ambient', 'ethereal wave', 'dark jazz waltz'],
+    textures: ['clean chorus bass', 'sustained guitar picking', '8-string syncopated guitar', 'analog synth pad 70s', 'polyrhythmic heavy riffs', 'wall-of-sound distortion', 'tape hiss'],
+    metatags: ['[Intro]', '[Verse]', '[Pre-Chorus]', '[Chorus]', '[Bridge]', '[Outro]', '[No Drums]', '[Slow Fading Bass]', '[Ambient Synth Pad, Fading In]', '[Dark Ambient Soundscape]', '[Bass Break]', '[End]', '[Fade Out]'],
+    vocals: ['(spoken word)', '(theatrical monologue)', '(whispered vocals)', '(clean and harsh vocal dualism)', '(deep baritone vocals)']
+  };
+
+  const NOISE_WORDS = ['masterpiece', 'epic', 'best quality', '4k audio', 'studio quality', 'virtuoso', 'perfect production'];
+  const END_TAGS = ['[end]', '[fade out]', '[outro]', '[silence]'];
+
+  const CHIP_CLASS = 'inline-flex items-center rounded-md border border-slate-700 bg-slate-800/70 px-2 py-1 font-mono text-[11px] leading-none text-slate-300 transition hover:border-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/50';
+  const PALETTE_CHIP_CLASS = 'inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 font-mono text-[11px] leading-none text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/50';
+
+  const byId = (id) => document.getElementById(id);
+
+  const dom = {
+    projectSelect: byId('projectSelect'),
+    btnNewProject: byId('btnNewProject'),
+    btnEditProject: byId('btnEditProject'),
+    modeQuick: byId('modeQuick'),
+    modeStudio: byId('modeStudio'),
+    modeHint: byId('modeHint'),
+    budgetUsed: byId('budgetUsed'),
+    budgetMax: byId('budgetMax'),
+    budgetBar: byId('budgetBar'),
+    budgetReset: byId('budgetReset'),
+    btnTags: byId('btnTags'),
+    btnExportBackup: byId('btnExportBackup'),
+    btnImportBackup: byId('btnImportBackup'),
+    backupFile: byId('backupFile'),
+    benchColumn: byId('benchColumn'),
+    benchProjectPill: byId('benchProjectPill'),
+    constGenre: byId('constGenre'),
+    constTuning: byId('constTuning'),
+    constPalette: byId('constPalette'),
+    constGuardrails: byId('constGuardrails'),
+    btnEditProjectConst: byId('btnEditProjectConst'),
+    trackLabel: byId('trackLabel'),
+    engineSelect: byId('engineSelect'),
+    tuningInput: byId('tuningInput'),
+    engineParams: byId('engineParams'),
+    mediaRef: byId('mediaRef'),
+    stylePrompt: byId('stylePrompt'),
+    styleDatalist: byId('styleDatalist'),
+    styleCountWrap: byId('styleCountWrap'),
+    styleDot: byId('styleDot'),
+    styleCount: byId('styleCount'),
+    tagFinderInput: byId('tagFinderInput'),
+    paletteChips: byId('paletteChips'),
+    btnCopyStyle: byId('btnCopyStyle'),
+    lyricsInput: byId('lyricsInput'),
+    lyricsCount: byId('lyricsCount'),
+    metaChips: byId('metaChips'),
+    vocalChips: byId('vocalChips'),
+    btnCopyLyrics: byId('btnCopyLyrics'),
+    preflightList: byId('preflightList'),
+    preflightStatus: byId('preflightStatus'),
+    benchStars: byId('benchStars'),
+    benchRatingLabel: byId('benchRatingLabel'),
+    btnClearRating: byId('btnClearRating'),
+    perceptionNotes: byId('perceptionNotes'),
+    btnSaveExperiment: byId('btnSaveExperiment'),
+    btnClearBench: byId('btnClearBench'),
+    btnCopyContext: byId('btnCopyContext'),
+    btnOpenPatch: byId('btnOpenPatch'),
+    historySearch: byId('historySearch'),
+    historyList: byId('historyList'),
+    historyCount: byId('historyCount'),
+    groundingCorpus: byId('groundingCorpus'),
+    groundingCounts: byId('groundingCounts'),
+    projectModal: byId('projectModal'),
+    projectForm: byId('projectForm'),
+    projModalTitle: byId('projModalTitle'),
+    projId: byId('projId'),
+    projTitle: byId('projTitle'),
+    projGenre: byId('projGenre'),
+    projTuning: byId('projTuning'),
+    projPalette: byId('projPalette'),
+    projGuardrails: byId('projGuardrails'),
+    tagsModal: byId('tagsModal'),
+    tagsGrid: byId('tagsGrid'),
+    btnExportTags: byId('btnExportTags'),
+    btnImportTags: byId('btnImportTags'),
+    btnRestoreTags: byId('btnRestoreTags'),
+    tagImportFile: byId('tagImportFile'),
+    importTagsModal: byId('importTagsModal'),
+    importTagsName: byId('importTagsName'),
+    tagImportOptions: byId('tagImportOptions'),
+    btnConfirmTagImport: byId('btnConfirmTagImport'),
+    patchModal: byId('patchModal'),
+    patchText: byId('patchText'),
+    btnApplyPatch: byId('btnApplyPatch'),
+    toastStack: byId('toastStack')
+  };
+
+  const scopeChecks = Array.from(document.querySelectorAll('.scope-check'));
+
+  const state = {
+    projects: [],
+    experiments: [],
+    tags: {},
+    budget: {},
+    activeProjectId: null,
+    mode: 'quick',
+    draftRating: 0,
+    pendingTagImport: null,
+    storageWarned: false
+  };
+
+  function pad(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function stamp() {
+    return new Date().toISOString();
+  }
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function formatDate(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function uniqueList(list) {
+    const seen = new Set();
+    const out = [];
+    (list || []).forEach((item) => {
+      const value = String(item ?? '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(value);
+    });
+    return out;
+  }
+
+  function readJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch (err) {
+      return fallback;
+    }
+  }
+
+  function writeJSON(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch (err) {
+      if (!state.storageWarned) {
+        state.storageWarned = true;
+        toast('Não foi possível gravar no localStorage. O navegador pode bloquear armazenamento neste contexto.', 'error');
+      }
+      return false;
+    }
+  }
+
+  function saveProjects() { writeJSON(KEYS.projects, state.projects); }
+  function saveExperiments() { writeJSON(KEYS.experiments, state.experiments); }
+  function saveTags() { writeJSON(KEYS.tags, state.tags); }
+  function saveBudget() { writeJSON(KEYS.budget, state.budget); }
+
+  function seedTags() {
+    const copy = {};
+    TAG_CATEGORIES.forEach(({ key }) => { copy[key] = [...DEFAULT_TAGS_DATABASE[key]]; });
+    return copy;
+  }
+
+  function normalizeTags(raw) {
+    const out = {};
+    TAG_CATEGORIES.forEach(({ key }) => {
+      const source = raw && typeof raw === 'object' && Array.isArray(raw[key]) ? raw[key] : [];
+      out[key] = uniqueList(source.filter((item) => typeof item === 'string'));
+    });
+    return out;
+  }
+
+  function tagsAreEmpty(tags) {
+    return TAG_CATEGORIES.every(({ key }) => !Array.isArray(tags[key]) || tags[key].length === 0);
+  }
+
+  function makeSandbox() {
+    return {
+      id: 'proj-sandbox',
+      title: 'Sandbox / Faixas Avulsas',
+      is_sandbox: true,
+      anchor_genre: '',
+      default_tuning_bpm: '',
+      palette_tags: [],
+      negative_guardrails: ['guitar shredding', 'operatic vocals'],
+      created_at: stamp()
+    };
+  }
+
+  function normalizeProject(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+      id: String(raw.id || ('proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6))),
+      title: String(raw.title || 'Projeto sem título'),
+      is_sandbox: Boolean(raw.is_sandbox),
+      anchor_genre: typeof raw.anchor_genre === 'string' ? raw.anchor_genre : '',
+      default_tuning_bpm: typeof raw.default_tuning_bpm === 'string' ? raw.default_tuning_bpm : '',
+      palette_tags: uniqueList(Array.isArray(raw.palette_tags) ? raw.palette_tags : []),
+      negative_guardrails: uniqueList(Array.isArray(raw.negative_guardrails) ? raw.negative_guardrails : []),
+      created_at: typeof raw.created_at === 'string' ? raw.created_at : stamp()
+    };
+  }
+
+  function normalizeExperiment(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const scope = Array.isArray(raw.scope)
+      ? raw.scope.map((s) => String(s).toLowerCase()).filter((s) => SCOPES.some((item) => item.value === s))
+      : [];
+    const rating = Math.max(0, Math.min(5, Math.round(Number(raw.rating) || 0)));
+    return {
+      id: String(raw.id || ('exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6))),
+      project_id: String(raw.project_id || ''),
+      track_label: typeof raw.track_label === 'string' ? raw.track_label : '',
+      engine: ENGINES.includes(raw.engine) ? raw.engine : ENGINE_SUNO,
+      scope: uniqueList(scope),
+      tuning_bpm: typeof raw.tuning_bpm === 'string' ? raw.tuning_bpm : '',
+      engine_params: typeof raw.engine_params === 'string' ? raw.engine_params : '',
+      style_prompt: typeof raw.style_prompt === 'string' ? raw.style_prompt : '',
+      lyrics_and_tags: typeof raw.lyrics_and_tags === 'string' ? raw.lyrics_and_tags : '',
+      media_ref: typeof raw.media_ref === 'string' ? raw.media_ref : '',
+      rating,
+      perception_notes: typeof raw.perception_notes === 'string' ? raw.perception_notes : '',
+      created_at: typeof raw.created_at === 'string' ? raw.created_at : stamp()
+    };
+  }
+
+  function normalizeBudget(raw) {
+    const budget = raw && typeof raw === 'object' ? raw : {};
+    return {
+      last_reset_date: typeof budget.last_reset_date === 'string' ? budget.last_reset_date : todayISO(),
+      suno_credits_used: Math.max(0, Number(budget.suno_credits_used) || 0),
+      suno_max_credits: Math.max(1, Number(budget.suno_max_credits) || 50)
+    };
+  }
+
+  function activeProject() {
+    return state.projects.find((p) => p.id === state.activeProjectId) || state.projects[0] || null;
+  }
+
+  function getScope() {
+    return scopeChecks.filter((c) => c.checked).map((c) => c.value);
+  }
+
+  function setScope(values) {
+    const list = Array.isArray(values) ? values.map((v) => String(v).toLowerCase()) : [];
+    scopeChecks.forEach((c) => { c.checked = list.includes(c.value); });
+  }
+
+  function toast(message, type = 'info') {
+    const styles = {
+      success: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100',
+      error: 'border-rose-500/40 bg-rose-500/10 text-rose-100',
+      warn: 'border-amber-500/40 bg-amber-500/10 text-amber-100',
+      info: 'border-slate-700 bg-slate-900 text-slate-200'
+    };
+    const icons = { success: '✓', error: '×', warn: '!', info: 'i' };
+    const node = document.createElement('div');
+    node.className = 'toast-in pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs shadow-xl shadow-black/40 ' + (styles[type] || styles.info);
+    node.innerHTML =
+      '<span class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/40 text-[10px] font-bold" aria-hidden="true">' + icons[type] + '</span>' +
+      '<span class="flex-1 leading-relaxed">' + esc(message) + '</span>' +
+      '<button type="button" class="shrink-0 text-current/60 hover:text-current" aria-label="Fechar aviso">×</button>';
+    const remove = () => {
+      if (!node.isConnected) return;
+      node.style.opacity = '0';
+      node.style.transform = 'translateY(6px)';
+      node.style.transition = 'opacity .15s ease, transform .15s ease';
+      setTimeout(() => node.remove(), 160);
+    };
+    node.querySelector('button').addEventListener('click', remove);
+    dom.toastStack.appendChild(node);
+    setTimeout(remove, 4200);
+  }
+
+  async function copyText(text, label) {
+    const value = String(text || '');
+    if (!value.trim()) {
+      toast('Nada para copiar: campo vazio.', 'warn');
+      return false;
+    }
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        fallbackCopy(value);
+      }
+      toast(label + ' copiado para o clipboard.', 'success');
+      return true;
+    } catch (err) {
+      try {
+        fallbackCopy(value);
+        toast(label + ' copiado para o clipboard.', 'success');
+        return true;
+      } catch (err2) {
+        toast('Não foi possível copiar automaticamente. Selecione e copie manualmente.', 'error');
+        return false;
+      }
+    }
+  }
+
+  function fallbackCopy(value) {
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } finally {
+      area.remove();
+    }
+    if (!ok) throw new Error('copy failed');
+  }
+
+  function downloadJSON(filename, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function readFileJSON(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          resolve(JSON.parse(String(reader.result)));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error('Falha ao ler arquivo'));
+      reader.readAsText(file);
+    });
+  }
+
+  function openModal(modal) {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    syncScrollLock();
+  }
+
+  function closeModal(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+    syncScrollLock();
+  }
+
+  function syncScrollLock() {
+    const anyOpen = Array.from(document.querySelectorAll('.modal')).some((m) => !m.classList.contains('hidden'));
+    document.documentElement.classList.toggle('overflow-hidden', anyOpen);
+    document.body.classList.toggle('overflow-hidden', anyOpen);
+  }
+
+  function insertAtCursor(field, text) {
+    if (!field) return;
+    const insertion = String(text);
+    const hasSelection = typeof field.selectionStart === 'number';
+    const start = hasSelection ? field.selectionStart : field.value.length;
+    const end = hasSelection ? field.selectionEnd : field.value.length;
+    const before = field.value.slice(0, start);
+    const after = field.value.slice(end);
+    field.value = before + insertion + after;
+    const caret = start + insertion.length;
+    field.focus();
+    if (typeof field.setSelectionRange === 'function') {
+      field.setSelectionRange(caret, caret);
+    }
+    updatePreflight();
+  }
+
+  function appendTagToStyle(tag) {
+    const cleaned = String(tag || '').trim();
+    if (!cleaned) return;
+    const current = dom.stylePrompt.value;
+    const tokens = current.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (tokens.includes(cleaned.toLowerCase())) {
+      toast('Tag já presente no Style Prompt.', 'info');
+      return;
+    }
+    dom.stylePrompt.value = current.trim()
+      ? current.replace(/\s*$/, '') + ', ' + cleaned
+      : cleaned;
+    updatePreflight();
+    dom.stylePrompt.focus();
+    const pos = dom.stylePrompt.value.length;
+    if (typeof dom.stylePrompt.setSelectionRange === 'function') {
+      dom.stylePrompt.setSelectionRange(pos, pos);
+    }
+  }
+
+  function ensureBudgetFresh() {
+    const today = todayISO();
+    if (state.budget.last_reset_date !== today) {
+      state.budget.last_reset_date = today;
+      state.budget.suno_credits_used = 0;
+      saveBudget();
+      renderBudget();
+      toast('Novo dia detectado: orçamento Suno reiniciado para 0.', 'info');
+    }
+  }
+
+  function init() {
+    const rawProjects = readJSON(KEYS.projects, null);
+    const projects = Array.isArray(rawProjects) ? rawProjects.map(normalizeProject).filter(Boolean) : [];
+    state.projects = projects.length ? projects : [makeSandbox()];
+
+    const rawExperiments = readJSON(KEYS.experiments, null);
+    const experiments = Array.isArray(rawExperiments) ? rawExperiments.map(normalizeExperiment).filter(Boolean) : [];
+    const projectIds = new Set(state.projects.map((p) => p.id));
+    state.experiments = experiments.map((e) => ({
+      ...e,
+      project_id: projectIds.has(e.project_id) ? e.project_id : state.projects[0].id
+    }));
+
+    state.tags = normalizeTags(readJSON(KEYS.tags, null));
+    if (tagsAreEmpty(state.tags)) {
+      state.tags = seedTags();
+    }
+
+    state.budget = normalizeBudget(readJSON(KEYS.budget, null));
+
+    const sandbox = state.projects.find((p) => p.is_sandbox);
+    state.activeProjectId = (sandbox || state.projects[0]).id;
+    state.mode = 'quick';
+
+    const today = todayISO();
+    if (state.budget.last_reset_date !== today) {
+      state.budget.last_reset_date = today;
+      state.budget.suno_credits_used = 0;
+    }
+
+    persistAll();
+    bindEvents();
+    renderAll();
+    paintBenchStars();
+
+    const project = activeProject();
+    dom.tuningInput.value = project ? (project.default_tuning_bpm || '') : '';
+    updatePreflight();
+  }
+
+  function persistAll() {
+    saveProjects();
+    saveExperiments();
+    saveTags();
+    saveBudget();
+  }
+
+  function renderAll() {
+    if (!state.projects.some((p) => p.id === state.activeProjectId)) {
+      state.activeProjectId = state.projects[0] ? state.projects[0].id : null;
+    }
+    renderProjectSelect();
+    renderBudget();
+    renderConstitution();
+    renderPalette();
+    renderTagLibrary();
+    renderHistory();
+    renderGrounding();
+    updatePreflight();
+    applyMode();
+  }
+
+  function renderProjectSelect() {
+    dom.projectSelect.innerHTML = state.projects.map((p) =>
+      '<option value="' + esc(p.id) + '">' + esc(p.title) + (p.is_sandbox ? ' · sandbox' : '') + '</option>'
+    ).join('');
+    if (state.activeProjectId) dom.projectSelect.value = state.activeProjectId;
+    const project = activeProject();
+    dom.benchProjectPill.textContent = project ? project.title : 'Sem projeto';
+  }
+
+  function renderBudget() {
+    ensureBudgetFreshSilent();
+    const used = Number(state.budget.suno_credits_used) || 0;
+    const max = Number(state.budget.suno_max_credits) || 50;
+    const pct = max > 0 ? Math.min(100, (used / max) * 100) : 0;
+    dom.budgetUsed.textContent = String(used);
+    dom.budgetMax.textContent = String(max);
+    dom.budgetBar.style.width = pct.toFixed(1) + '%';
+    dom.budgetBar.className = 'h-full rounded-full transition-all ' +
+      (pct >= 100 ? 'bg-rose-500' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-500');
+    dom.budgetReset.textContent = 'reset ' + state.budget.last_reset_date.split('-').reverse().join('/');
+  }
+
+  function ensureBudgetFreshSilent() {
+    const today = todayISO();
+    if (state.budget.last_reset_date !== today) {
+      state.budget.last_reset_date = today;
+      state.budget.suno_credits_used = 0;
+      saveBudget();
+    }
+  }
+
+  function renderConstitution() {
+    const project = activeProject();
+    dom.constGenre.textContent = project && project.anchor_genre ? project.anchor_genre : '—';
+    dom.constTuning.textContent = project && project.default_tuning_bpm ? project.default_tuning_bpm : '—';
+    dom.constPalette.innerHTML = project && project.palette_tags.length
+      ? project.palette_tags.map((t) => '<span class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] text-emerald-200">' + esc(t) + '</span>').join('')
+      : '<span class="text-[11px] text-slate-600">Sem tags de paleta.</span>';
+    dom.constGuardrails.innerHTML = project && project.negative_guardrails.length
+      ? project.negative_guardrails.map((t) => '<span class="rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[11px] text-rose-200">' + esc(t) + '</span>').join('')
+      : '<span class="text-[11px] text-slate-600">Sem exclusões cadastradas.</span>';
+  }
+
+  function renderPalette() {
+    const project = activeProject();
+    const palette = project ? project.palette_tags : [];
+    dom.paletteChips.innerHTML = palette.length
+      ? palette.map((tag) => '<button type="button" class="' + PALETTE_CHIP_CLASS + '" data-palette-tag="' + esc(tag) + '" title="Adicionar ao Style Prompt">' + esc(tag) + '</button>').join('')
+      : '<span class="text-[11px] text-slate-600">Sem tags de paleta. Edite o projeto para cadastrar.</span>';
+  }
+
+  function renderTagLibrary() {
+    const options = uniqueList([...(state.tags.tunings || []), ...(state.tags.genres || []), ...(state.tags.textures || [])]);
+    dom.styleDatalist.innerHTML = options.map((tag) => '<option value="' + esc(tag) + '"></option>').join('');
+    renderTagChips();
+  }
+
+  function renderTagChips() {
+    const metatags = state.tags.metatags || [];
+    const vocals = state.tags.vocals || [];
+    dom.metaChips.innerHTML = metatags.length
+      ? metatags.map((tag) => '<button type="button" class="' + CHIP_CLASS + '" data-insert-tag="' + esc(tag) + '">' + esc(tag) + '</button>').join('')
+      : '<span class="text-[11px] text-slate-600">Sem metatags cadastradas.</span>';
+    dom.vocalChips.innerHTML = vocals.length
+      ? vocals.map((tag) => '<button type="button" class="' + CHIP_CLASS + '" data-insert-tag="' + esc(tag) + '">' + esc(tag) + '</button>').join('')
+      : '<span class="text-[11px] text-slate-600">Sem vocais cadastrados.</span>';
+  }
+
+  function renderTagsModal() {
+    dom.tagsGrid.innerHTML = TAG_CATEGORIES.map(({ key, label }) => {
+      const list = state.tags[key] || [];
+      const chips = list.length
+        ? list.map((tag, index) =>
+            '<span class="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/70 px-2 py-1 font-mono text-[11px] text-slate-300">' +
+              esc(tag) +
+              '<button type="button" class="text-slate-500 transition hover:text-rose-400" data-action="del-tag" data-cat="' + key + '" data-index="' + index + '" aria-label="Remover ' + esc(tag) + '">×</button>' +
+            '</span>'
+          ).join('')
+        : '<span class="text-[11px] text-slate-600">Categoria vazia.</span>';
+      return (
+        '<div class="flex min-w-0 flex-col rounded-xl border border-slate-800 bg-slate-950/60 p-3">' +
+          '<div class="mb-2 flex items-center justify-between gap-2">' +
+            '<h4 class="text-xs font-semibold text-slate-200">' + label + '</h4>' +
+            '<span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-[10px] text-slate-400">' + list.length + '</span>' +
+          '</div>' +
+          '<div class="scroll-thin mb-2 flex max-h-40 flex-wrap content-start gap-1.5 overflow-y-auto pr-1">' + chips + '</div>' +
+          '<div class="mt-auto flex gap-1.5">' +
+            '<input id="tag-add-' + key + '" type="text" data-tag-input="' + key + '" placeholder="nova tag…" class="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/40">' +
+            '<button type="button" class="rounded-md bg-indigo-500 px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-indigo-400" data-action="add-tag" data-cat="' + key + '">+</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function getFilteredExperiments() {
+    const project = activeProject();
+    if (!project) return [];
+    let list = state.experiments.filter((e) => e.project_id === project.id);
+    const query = dom.historySearch.value.trim().toLowerCase();
+    if (query) {
+      list = list.filter((e) => {
+        const haystack = [
+          e.track_label, e.style_prompt, e.lyrics_and_tags, e.perception_notes,
+          e.engine, e.tuning_bpm, e.engine_params, e.media_ref,
+          (e.scope || []).join(' ')
+        ].join(' ').toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    return list.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  function starsMarkup(rating, id) {
+    let html = '<div class="flex items-center gap-0.5">';
+    for (let i = 1; i <= 5; i += 1) {
+      html += '<button type="button" class="star text-sm ' + (i <= rating ? 'text-amber-400' : 'text-slate-600 hover:text-amber-300') + '" data-action="rate" data-id="' + esc(id) + '" data-rating="' + i + '" title="Nota ' + i + '" aria-label="Nota ' + i + '">★</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function engineBadgeClass(engine) {
+    if (engine === ENGINE_SUNO) return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+    if (engine === ENGINE_FLOW) return 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300';
+    return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+  }
+
+  function isNegativeExperiment(experiment) {
+    const rating = Number(experiment.rating) || 0;
+    const notes = String(experiment.perception_notes || '').toLowerCase();
+    return (rating > 0 && rating <= 2) || /falh|alucin|ruim|erro|distorc|vazament|ignorou|quebrou|fail|hallucinat|artifact|glitch/.test(notes);
+  }
+
+  function renderHistory() {
+    const project = activeProject();
+    const list = getFilteredExperiments();
+    const total = project ? state.experiments.filter((e) => e.project_id === project.id).length : 0;
+    dom.historyCount.textContent = total === list.length ? String(total) : list.length + '/' + total;
+
+    if (!list.length) {
+      dom.historyList.innerHTML =
+        '<div class="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 px-4 py-8 text-center">' +
+          '<p class="text-xs font-semibold text-slate-400">' + (total ? 'Nenhum resultado para o filtro.' : 'Nenhum experimento neste projeto.') + '</p>' +
+          '<p class="mt-1 text-[11px] text-slate-600">' + (total ? 'Ajuste a busca para ver os registros.' : 'Preencha a bancada e clique em Salvar Experimento.') + '</p>' +
+        '</div>';
+      return;
+    }
+
+    dom.historyList.innerHTML = list.map((e) => {
+      const negative = isNegativeExperiment(e);
+      const scopeBadges = (e.scope && e.scope.length)
+        ? e.scope.map((s) => '<span class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">' + esc(s) + '</span>').join('')
+        : '<span class="text-[10px] text-slate-600">sem escopo</span>';
+      return (
+        '<article class="rounded-xl border border-slate-800 bg-slate-950/70 p-3">' +
+          '<div class="flex flex-wrap items-start justify-between gap-2">' +
+            '<div class="min-w-0">' +
+              '<p class="truncate text-xs font-semibold text-slate-100">' + esc(e.track_label || 'Faixa sem identificação') + '</p>' +
+              '<p class="mt-0.5 font-mono text-[10px] text-slate-500">' + esc(formatDate(e.created_at)) + '</p>' +
+            '</div>' +
+            '<div class="flex flex-col items-end gap-1">' +
+              starsMarkup(e.rating, e.id) +
+              '<span class="rounded border px-1.5 py-0.5 text-[10px] font-semibold ' + engineBadgeClass(e.engine) + '">' + esc(e.engine) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mt-2 flex flex-wrap items-center gap-1">' + scopeBadges +
+            (e.tuning_bpm ? '<span class="font-mono text-[10px] text-slate-500">· ' + esc(e.tuning_bpm) + '</span>' : '') +
+          '</div>' +
+          (e.style_prompt ? '<p class="clamp-3 mt-2 rounded-md bg-slate-900/80 p-2 font-mono text-[11px] leading-relaxed text-slate-300">' + esc(e.style_prompt) + '</p>' : '') +
+          (e.perception_notes ? '<p class="mt-2 rounded-md border-l-2 ' + (negative ? 'border-rose-500/70' : 'border-emerald-500/60') + ' bg-slate-900/60 px-2 py-1.5 text-[11px] leading-relaxed text-slate-400 whitespace-pre-wrap">' + esc(e.perception_notes) + '</p>' : '') +
+          '<div class="mt-2.5 flex flex-wrap gap-1.5">' +
+            '<button type="button" class="rounded-md bg-indigo-500/15 px-2 py-1 text-[10px] font-bold text-indigo-200 transition hover:bg-indigo-500/30" data-action="reuse" data-id="' + esc(e.id) + '">↺ Reutilizar</button>' +
+            '<button type="button" class="rounded-md border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-300 transition hover:bg-slate-800" data-action="copy-style" data-id="' + esc(e.id) + '">⧉ Style</button>' +
+            '<button type="button" class="rounded-md border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-300 transition hover:bg-slate-800" data-action="copy-lyrics" data-id="' + esc(e.id) + '">⧉ Letra</button>' +
+            '<button type="button" class="ml-auto rounded-md border border-rose-500/30 px-2 py-1 text-[10px] font-semibold text-rose-300/80 transition hover:bg-rose-500/15 hover:text-rose-200" data-action="delete" data-id="' + esc(e.id) + '">Excluir</button>' +
+          '</div>' +
+        '</article>'
+      );
+    }).join('');
+  }
+
+  function buildGroundingDataset() {
+    const project = activeProject();
+    const own = project ? state.experiments.filter((e) => e.project_id === project.id) : [];
+    const positives = own.filter((e) => Number(e.rating) >= 4);
+    const negatives = own.filter(isNegativeExperiment);
+    return { project, positives, negatives, total: own.length };
+  }
+
+  function extractHitTags(positives) {
+    const freq = new Map();
+    positives.forEach((experiment) => {
+      String(experiment.style_prompt || '').split(',').forEach((token) => {
+        const tag = token.trim().toLowerCase();
+        if (!tag) return;
+        freq.set(tag, (freq.get(tag) || 0) + 1);
+      });
+    });
+    return Array.from(freq.entries())
+      .filter(([, count]) => count > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tag, count]) => tag + ' (' + count + 'x)');
+  }
+
+  function experimentToText(experiment, index) {
+    return [
+      '[' + index + '] ' + (experiment.track_label || 'Faixa sem rótulo') + ' | motor: ' + experiment.engine +
+        ' | escopo: ' + ((experiment.scope && experiment.scope.length) ? experiment.scope.join(', ') : '—') +
+        ' | nota: ' + (experiment.rating || 0) + '/5 | ' + formatDate(experiment.created_at),
+      'STYLE: ' + (experiment.style_prompt || '(vazio)'),
+      'LETRA/TAGS: ' + (experiment.lyrics_and_tags || '(vazio)'),
+      'AFINAÇÃO/BPM: ' + (experiment.tuning_bpm || '—') + ' | PARAMS: ' + (experiment.engine_params || '—'),
+      'REFERÊNCIA: ' + (experiment.media_ref || '—'),
+      'PERCEPÇÃO: ' + (experiment.perception_notes || '(sem notas)'),
+      ''
+    ].join('\n');
+  }
+
+  function groundingText() {
+    const dataset = buildGroundingDataset();
+    const project = dataset.project;
+    const lines = [];
+    lines.push('BASE DE CONHECIMENTO — PROMPTSTUDIO & AUDIO LAB (MVP GROUNDING)');
+    lines.push('Projeto ativo: ' + (project ? project.title : '(nenhum)') + ' [' + (project ? project.id : '-') + ']');
+    lines.push('Gerado em: ' + new Date().toLocaleString('pt-BR'));
+    lines.push('Experimentos no projeto: ' + dataset.total + ' | positivos (>=4*): ' + dataset.positives.length + ' | negativos: ' + dataset.negatives.length);
+    lines.push('');
+    lines.push('— CONSTITUIÇÃO SONORA DO PROJETO —');
+    lines.push('Gênero-âncora: ' + (project && project.anchor_genre ? project.anchor_genre : '(não definido)'));
+    lines.push('Afinação/BPM padrão: ' + (project && project.default_tuning_bpm ? project.default_tuning_bpm : '(não definido)'));
+    lines.push('Paleta base: ' + (project && project.palette_tags.length ? project.palette_tags.join(', ') : '(vazia)'));
+    lines.push('Exclusões negativas: ' + (project && project.negative_guardrails.length ? project.negative_guardrails.join(', ') : '(vazias)'));
+    lines.push('');
+    lines.push('— BENCHMARKS POSITIVOS (nota >= 4) —');
+    if (!dataset.positives.length) {
+      lines.push('(nenhum experimento com nota >= 4 ainda)');
+    } else {
+      dataset.positives.forEach((experiment, index) => lines.push(experimentToText(experiment, index + 1)));
+      const hits = extractHitTags(dataset.positives);
+      lines.push('TAGS DE DESTAQUE (recorrência nos positivos): ' + (hits.length ? hits.join(', ') : '(sem repetição relevante)'));
+    }
+    lines.push('');
+    lines.push('— BENCHMARKS NEGATIVOS (falhas / alucinações) —');
+    if (!dataset.negatives.length) {
+      lines.push('(nenhuma falha ou alucinação registrada)');
+    } else {
+      dataset.negatives.forEach((experiment, index) => lines.push(experimentToText(experiment, index + 1)));
+    }
+    return lines.join('\n');
+  }
+
+  function renderGrounding() {
+    const dataset = buildGroundingDataset();
+    dom.groundingCorpus.textContent = groundingText();
+    dom.groundingCounts.innerHTML =
+      '<span class="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 font-mono text-[10px] text-slate-400">' + dataset.total + ' registros</span>' +
+      '<span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-300">+' + dataset.positives.length + ' positivos</span>' +
+      '<span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] text-rose-300">−' + dataset.negatives.length + ' negativos</span>';
+  }
+
+  function previewText(text, limit) {
+    const value = String(text || '');
+    if (!value) return '(vazio)';
+    return value.length > limit ? value.slice(0, limit) + '…' : value;
+  }
+
+  function buildContextPackage() {
+    const project = activeProject();
+    const engine = dom.engineSelect.value;
+    const scope = getScope();
+    const palette = project ? project.palette_tags : [];
+    const guardrails = project ? project.negative_guardrails : [];
+    const lines = [];
+    lines.push('CONTEXTO PARA O GEMINI — PROMPTSTUDIO & AUDIO LAB (SIDECAR)');
+    lines.push('Projeto ativo: ' + (project ? project.title : '(nenhum)'));
+    lines.push('Modo do app: ' + (state.mode === 'studio' ? 'Estúdio' : 'Rápido'));
+    lines.push('');
+    lines.push('— BANCADA ATUAL —');
+    lines.push('Motor: ' + engine);
+    lines.push('Escopo: ' + (scope.length ? scope.join(', ') : '(nenhum marcado)'));
+    lines.push('Afinação/BPM: ' + (dom.tuningInput.value.trim() || '(vazio)'));
+    lines.push('Identificação da faixa: ' + (dom.trackLabel.value.trim() || '(vazio)'));
+    lines.push('Parâmetros do motor: ' + (dom.engineParams.value.trim() || '(vazio)'));
+    lines.push('Referência DAW/Stems: ' + (dom.mediaRef.value.trim() || '(vazio)'));
+    lines.push('Paleta do projeto: ' + (palette.length ? palette.join(', ') : '(vazia)'));
+    lines.push('Exclusões negativas: ' + (guardrails.length ? guardrails.join(', ') : '(vazias)'));
+    lines.push('');
+    lines.push('STYLE PROMPT ATUAL:');
+    lines.push(dom.stylePrompt.value.trim() || '(vazio)');
+    lines.push('');
+    lines.push('LETRA / METATAGS ATUAIS:');
+    lines.push(dom.lyricsInput.value.trim() || '(vazio)');
+    lines.push('');
+    lines.push('NOTAS DE PERCEPÇÃO EM ANDAMENTO:');
+    lines.push(dom.perceptionNotes.value.trim() || '(vazio)');
+    lines.push('');
+    lines.push('==== ' + groundingText());
+    lines.push('');
+    lines.push('==== CONTRATO DE RETORNO (OBRIGATÓRIO) ====');
+    lines.push('Responda SOMENTE com os dois blocos abaixo, nesta ordem, sem markdown e sem comentários fora dos blocos:');
+    lines.push('===STYLE===');
+    lines.push('<style prompt final, em inglês, denso e objetivo>');
+    lines.push('===LYRICS===');
+    lines.push('<letra com metatags [..] e modificadores vocais (..), com encerramento no final>');
+    lines.push('');
+    lines.push('Regras para ' + engine + ':');
+    if (engine === ENGINE_SUNO) {
+      lines.push('- Style Prompt com no máximo 120 caracteres (zona de risco entre 121 e 199; nunca >= 200).');
+      lines.push('- Não use termos genéricos: ' + NOISE_WORDS.join(', ') + '.');
+      lines.push('- Respeite as exclusões negativas do projeto: ' + (guardrails.length ? guardrails.join(', ') : '(nenhuma)') + '.');
+      lines.push('- Se houver escopo estrutura ou vocal e a letra passar de 250 caracteres, inclua [End] ou [Fade Out].');
+    } else if (engine === ENGINE_FLOW) {
+      lines.push('- Sem limite rígido de 120 caracteres, mas mantenha o prompt objetivo e separado por vírgulas.');
+      lines.push('- Preserve a paleta e as exclusões negativas: ' + (guardrails.length ? guardrails.join(', ') : '(nenhuma)') + '.');
+    } else {
+      lines.push('- Foque em instruções de arranjo, afinação e referência de DAW; sem limite de caracteres.');
+      lines.push('- Preserve a paleta e as exclusões negativas: ' + (guardrails.length ? guardrails.join(', ') : '(nenhuma)') + '.');
+    }
+    lines.push('- Use os benchmarks positivos como padrão de qualidade e evite os padrões dos negativos.');
+    lines.push('- Não invente dados, projetos ou notas que não constem no contexto.');
+    return lines.join('\n');
+  }
+
+  function parsePatch(raw) {
+    const styleMarker = '===STYLE===';
+    const lyricsMarker = '===LYRICS===';
+    const lines = String(raw || '').replace(/\r\n?/g, '\n').split('\n');
+    const styleLine = lines.findIndex((line) => line.includes(styleMarker));
+    const lyricsLine = lines.findIndex((line) => line.includes(lyricsMarker));
+
+    const inlineOf = (line, marker) => {
+      const position = line.indexOf(marker);
+      return position === -1 ? '' : line.slice(position + marker.length);
+    };
+
+    const cleanBlock = (chunks) => {
+      const kept = [];
+      for (const line of chunks) {
+        const trimmed = line.trim();
+        if (/^```/.test(trimmed)) break;
+        if (/^===\s*[A-Z_ ]+\s*===$/.test(trimmed)) break;
+        kept.push(line);
+      }
+      return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    };
+
+    let style = '';
+    if (styleLine !== -1) {
+      const end = (lyricsLine !== -1 && lyricsLine > styleLine) ? lyricsLine : lines.length;
+      style = cleanBlock([inlineOf(lines[styleLine], styleMarker), ...lines.slice(styleLine + 1, end)]);
+    }
+
+    let lyrics = '';
+    if (lyricsLine !== -1) {
+      lyrics = cleanBlock([inlineOf(lines[lyricsLine], lyricsMarker), ...lines.slice(lyricsLine + 1)]);
+    }
+
+    return { style, lyrics, hasStyle: styleLine !== -1, hasLyrics: lyricsLine !== -1 };
+  }
+
+  function applyPatch(raw) {
+    const parsed = parsePatch(raw);
+    if (!parsed.hasStyle && !parsed.hasLyrics) {
+      toast('Nenhum bloco ===STYLE=== ou ===LYRICS=== encontrado no texto colado.', 'error');
+      return false;
+    }
+    if (!parsed.style && !parsed.lyrics) {
+      toast('Os blocos foram encontrados, mas estão vazios.', 'error');
+      return false;
+    }
+    if (parsed.style) dom.stylePrompt.value = parsed.style;
+    if (parsed.lyrics) dom.lyricsInput.value = parsed.lyrics;
+    updatePreflight();
+    renderHistory();
+    toast('Patch aplicado na bancada e Pre-Flight reexecutado.', 'success');
+    dom.benchColumn.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  }
+
+  function preflightItem(level, title, detail) {
+    const styles = {
+      ok: { box: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-100', icon: 'text-emerald-400', mark: '✓' },
+      warn: { box: 'border-amber-500/30 bg-amber-500/5 text-amber-100', icon: 'text-amber-400', mark: '!' },
+      error: { box: 'border-rose-500/30 bg-rose-500/10 text-rose-100', icon: 'text-rose-400', mark: '×' },
+      info: { box: 'border-slate-700 bg-slate-950/60 text-slate-200', icon: 'text-slate-400', mark: 'i' }
+    };
+    const style = styles[level] || styles.info;
+    return '<li class="flex items-start gap-2.5 rounded-lg border px-3 py-2 ' + style.box + '">' +
+      '<span class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/30 text-[10px] font-bold ' + style.icon + '" aria-hidden="true">' + style.mark + '</span>' +
+      '<div class="min-w-0">' +
+        '<p class="text-xs font-semibold leading-snug">' + esc(title) + '</p>' +
+        '<p class="mt-0.5 break-words text-[11px] leading-relaxed opacity-80">' + esc(detail) + '</p>' +
+      '</div>' +
+    '</li>';
+  }
+
+  function setPreflightStatus(level) {
+    const classes = {
+      ok: 'rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300',
+      warn: 'rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300',
+      error: 'rounded-full border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-300',
+      info: 'rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] font-semibold text-slate-300'
+    };
+    const labels = { ok: 'Pronto', warn: 'Atenção', error: 'Revisar', info: 'Aguardando' };
+    dom.preflightStatus.className = classes[level] || classes.info;
+    dom.preflightStatus.textContent = labels[level] || labels.info;
+  }
+
+  function updateStyleCounter() {
+    const engine = dom.engineSelect.value;
+    const length = dom.stylePrompt.value.length;
+    dom.styleCountWrap.className = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] ';
+    dom.styleDot.className = 'h-1.5 w-1.5 rounded-full ';
+
+    if (engine !== ENGINE_SUNO) {
+      dom.styleCountWrap.className += 'border-slate-700 bg-slate-800/60 text-slate-300';
+      dom.styleDot.className += 'bg-slate-400';
+      dom.styleCount.textContent = length + ' chars';
+      return;
+    }
+    if (length <= 120) {
+      dom.styleCountWrap.className += 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+      dom.styleDot.className += 'bg-emerald-400';
+    } else if (length <= 199) {
+      dom.styleCountWrap.className += 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+      dom.styleDot.className += 'bg-amber-400';
+    } else {
+      dom.styleCountWrap.className += 'border-rose-500/40 bg-rose-500/10 text-rose-300';
+      dom.styleDot.className += 'bg-rose-400';
+    }
+    dom.styleCount.textContent = length + ' / 120';
+  }
+
+  function updatePreflight() {
+    const engine = dom.engineSelect.value;
+    const style = dom.stylePrompt.value;
+    const lyrics = dom.lyricsInput.value;
+    const styleLength = style.length;
+    const project = activeProject();
+    const guardrails = project ? project.negative_guardrails : [];
+    const guardrailsLower = guardrails.map((t) => t.toLowerCase());
+    const lowerStyle = style.toLowerCase();
+    const scope = getScope();
+
+    updateStyleCounter();
+    dom.lyricsCount.textContent = lyrics.length + ' chars';
+
+    const items = [];
+    let errors = 0;
+    let warns = 0;
+
+    const hasContent = style.trim() || lyrics.trim();
+    if (!hasContent) {
+      items.push(preflightItem('info', 'Bancada vazia', 'Preencha o Style Prompt ou cole um patch do Gemini para iniciar a validação em tempo real.'));
+      dom.preflightList.innerHTML = items.join('');
+      setPreflightStatus('info');
+      return;
+    }
+
+    if (!style.trim()) {
+      items.push(preflightItem('error', 'Style Prompt vazio', 'Descreva o som antes de gerar; o campo é obrigatório na prática.'));
+      errors += 1;
+    }
+
+    if (engine === ENGINE_SUNO) {
+      if (styleLength <= 120) {
+        items.push(preflightItem('ok', 'Semáforo verde · ' + styleLength + ' chars', 'Dentro do limite seguro do Suno AI (até 120 caracteres).'));
+      } else if (styleLength <= 199) {
+        items.push(preflightItem('warn', 'Semáforo amarelo · ' + styleLength + ' chars', 'Zona de risco (121–199). Corte adjetivos para voltar à faixa verde.'));
+        warns += 1;
+      } else {
+        items.push(preflightItem('error', 'Semáforo vermelho · ' + styleLength + ' chars', 'Acima de 199 caracteres: o Suno tende a ignorar parte do prompt.'));
+        errors += 1;
+      }
+    } else {
+      items.push(preflightItem('info', 'Contador neutro · ' + styleLength + ' chars', 'Sem limite de 120 caracteres para ' + engine + '.'));
+    }
+
+    const noiseFound = NOISE_WORDS.filter((word) => lowerStyle.includes(word));
+    if (noiseFound.length) {
+      items.push(preflightItem('warn', 'Filtro de ruído', 'Termos genéricos detectados: ' + noiseFound.map((w) => '"' + w + '"').join(', ') + '. Remova para liberar espaço útil.'));
+      warns += 1;
+    } else {
+      items.push(preflightItem('ok', 'Filtro de ruído limpo', 'Nenhum termo da lista NOISE_WORDS no Style Prompt.'));
+    }
+
+    const guardrailHits = guardrails.filter((guard, index) => guard && lowerStyle.includes(guardrailsLower[index]));
+    if (guardrailHits.length) {
+      items.push(preflightItem('error', 'Conflito com guardrails', 'Exclusões negativas do projeto aparecem no prompt: ' + guardrailHits.map((g) => '"' + g + '"').join(', ') + '.'));
+      errors += 1;
+    } else {
+      items.push(preflightItem('ok', 'Guardrails respeitados', guardrails.length ? 'Nenhuma das exclusões negativas foi encontrada.' : 'O projeto não possui exclusões negativas cadastradas.'));
+    }
+
+    const needsEnding = engine === ENGINE_SUNO && lyrics.trim().length > 250 && (scope.includes('estrutura') || scope.includes('vocal'));
+    if (needsEnding) {
+      const lowerLyrics = lyrics.toLowerCase();
+      const hasEnding = END_TAGS.some((tag) => lowerLyrics.includes(tag));
+      if (hasEnding) {
+        items.push(preflightItem('ok', 'Encerramento detectado', 'A letra longa com escopo de estrutura/vocal possui tag final.'));
+      } else {
+        items.push(preflightItem('warn', 'Alerta de encerramento', 'Letra com mais de 250 caracteres e escopo estrutura/vocal sem [End], [Fade Out], [Outro] ou [Silence].'));
+        warns += 1;
+      }
+    } else {
+      items.push(preflightItem('info', 'Alerta de encerramento inativo', 'Só se aplica ao Suno AI com letra > 250 chars e escopo estrutura ou vocal.'));
+    }
+
+    const scopeLabels = scope.map((value) => (SCOPES.find((s) => s.value === value) || { label: value }).label);
+    items.push(preflightItem('info', 'Escopo de ' + scope.length + '/4 selecionado', scope.length ? scopeLabels.join(' · ') : 'Nenhum escopo marcado; isso é permitido (0 a 4 livres).'));
+
+    dom.preflightList.innerHTML = items.join('');
+
+    if (errors > 0) {
+      setPreflightStatus('error');
+    } else if (warns > 0) {
+      setPreflightStatus('warn');
+    } else {
+      setPreflightStatus('ok');
+    }
+  }
+
+  function paintBenchStars() {
+    Array.from(dom.benchStars.querySelectorAll('[data-bench-star]')).forEach((button) => {
+      const value = Number(button.dataset.benchStar);
+      button.className = 'star text-lg ' + (value <= state.draftRating ? 'text-amber-400' : 'text-slate-600 hover:text-amber-300');
+    });
+    dom.benchRatingLabel.textContent = state.draftRating ? state.draftRating + ' / 5' : 'Sem nota';
+  }
+
+  function applyMode() {
+    const studio = state.mode === 'studio';
+    document.querySelectorAll('[data-studio-only]').forEach((node) => {
+      node.classList.toggle('hidden', !studio);
+    });
+    const activeClass = 'rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-indigo-400/60';
+    const idleClass = 'rounded-md px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400/40';
+    dom.modeQuick.className = studio ? idleClass : activeClass;
+    dom.modeStudio.className = studio ? activeClass : idleClass;
+    dom.modeQuick.setAttribute('aria-pressed', String(!studio));
+    dom.modeStudio.setAttribute('aria-pressed', String(studio));
+    dom.modeHint.textContent = studio
+      ? 'Constituição, identificação da faixa e parâmetros de motor visíveis.'
+      : 'Bancada enxuta: style prompt e letra sempre acessíveis.';
+  }
+
+  function setMode(mode) {
+    if (mode !== 'quick' && mode !== 'studio') return;
+    state.mode = mode;
+    applyMode();
+  }
+
+  function openProjectModal(project) {
+    if (project) {
+      dom.projModalTitle.textContent = 'Editar projeto';
+      dom.projId.value = project.id;
+      dom.projTitle.value = project.title;
+      dom.projGenre.value = project.anchor_genre || '';
+      dom.projTuning.value = project.default_tuning_bpm || '';
+      dom.projPalette.value = (project.palette_tags || []).join(', ');
+      dom.projGuardrails.value = (project.negative_guardrails || []).join(', ');
+    } else {
+      dom.projModalTitle.textContent = 'Novo projeto';
+      dom.projId.value = '';
+      dom.projTitle.value = '';
+      dom.projGenre.value = '';
+      dom.projTuning.value = '';
+      dom.projPalette.value = '';
+      dom.projGuardrails.value = '';
+    }
+    openModal(dom.projectModal);
+    setTimeout(() => dom.projTitle.focus(), 60);
+  }
+
+  function handleProjectSubmit(event) {
+    event.preventDefault();
+    const title = dom.projTitle.value.trim();
+    if (!title) {
+      toast('Informe um título para o projeto.', 'error');
+      dom.projTitle.focus();
+      return;
+    }
+    const payload = {
+      title,
+      anchor_genre: dom.projGenre.value.trim(),
+      default_tuning_bpm: dom.projTuning.value.trim(),
+      palette_tags: uniqueList(dom.projPalette.value.split(',')),
+      negative_guardrails: uniqueList(dom.projGuardrails.value.split(','))
+    };
+    const editingId = dom.projId.value;
+
+    if (editingId) {
+      const target = state.projects.find((p) => p.id === editingId);
+      if (!target) {
+        toast('Projeto não encontrado.', 'error');
+        return;
+      }
+      Object.assign(target, payload);
+      saveProjects();
+      renderAll();
+      closeModal(dom.projectModal);
+      toast('Projeto "' + title + '" atualizado.', 'success');
+    } else {
+      const project = {
+        id: 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+        title: payload.title,
+        is_sandbox: false,
+        anchor_genre: payload.anchor_genre,
+        default_tuning_bpm: payload.default_tuning_bpm,
+        palette_tags: payload.palette_tags,
+        negative_guardrails: payload.negative_guardrails,
+        created_at: stamp()
+      };
+      state.projects.push(project);
+      state.activeProjectId = project.id;
+      saveProjects();
+      if (!dom.tuningInput.value.trim() && project.default_tuning_bpm) {
+        dom.tuningInput.value = project.default_tuning_bpm;
+      }
+      renderAll();
+      closeModal(dom.projectModal);
+      toast('Projeto "' + title + '" criado e ativado.', 'success');
+    }
+  }
+
+  function handleProjectChange() {
+    state.activeProjectId = dom.projectSelect.value;
+    const project = activeProject();
+    if (project && !dom.tuningInput.value.trim()) {
+      dom.tuningInput.value = project.default_tuning_bpm || '';
+    }
+    renderAll();
+    toast('Projeto ativo: ' + (project ? project.title : '—'), 'info');
+  }
+
+  function saveExperiment() {
+    ensureBudgetFresh();
+    const project = activeProject();
+    if (!project) {
+      toast('Crie ou selecione um projeto antes de salvar.', 'error');
+      return;
+    }
+    const style = dom.stylePrompt.value.trim();
+    const lyricsRaw = dom.lyricsInput.value;
+    if (!style && !lyricsRaw.trim()) {
+      toast('Preencha o Style Prompt ou a Letra/Metatags antes de salvar.', 'error');
+      return;
+    }
+    const engine = dom.engineSelect.value;
+    const experiment = {
+      id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+      project_id: project.id,
+      track_label: dom.trackLabel.value.trim(),
+      engine,
+      scope: getScope(),
+      tuning_bpm: dom.tuningInput.value.trim(),
+      engine_params: dom.engineParams.value.trim(),
+      style_prompt: style,
+      lyrics_and_tags: lyricsRaw.trim(),
+      media_ref: dom.mediaRef.value.trim(),
+      rating: state.draftRating,
+      perception_notes: dom.perceptionNotes.value.trim(),
+      created_at: stamp()
+    };
+
+    state.experiments.push(experiment);
+    saveExperiments();
+
+    if (engine === ENGINE_SUNO) {
+      state.budget.suno_credits_used += 10;
+      saveBudget();
+      renderBudget();
+    }
+
+    state.draftRating = 0;
+    paintBenchStars();
+    dom.perceptionNotes.value = '';
+    dom.mediaRef.value = '';
+    renderHistory();
+    renderGrounding();
+    updatePreflight();
+
+    let message = 'Experimento salvo';
+    if (engine === ENGINE_SUNO) {
+      message += ' · +10 créditos Suno consumidos (' + state.budget.suno_credits_used + '/' + state.budget.suno_max_credits + ').';
+    } else {
+      message += ' · ' + engine + ' não consome créditos.';
+    }
+    toast(message, 'success');
+
+    if (engine === ENGINE_SUNO && state.budget.suno_credits_used >= state.budget.suno_max_credits) {
+      toast('Orçamento diário Suno esgotado ou excedido. Aguarde o reset do dia.', 'warn');
+    }
+  }
+
+  function clearBench() {
+    if (!window.confirm('Limpar todos os campos da bancada? O histórico não será afetado.')) return;
+    [dom.stylePrompt, dom.lyricsInput, dom.trackLabel, dom.engineParams, dom.mediaRef, dom.perceptionNotes, dom.tagFinderInput].forEach((field) => { field.value = ''; });
+    scopeChecks.forEach((check) => { check.checked = false; });
+    const project = activeProject();
+    dom.tuningInput.value = project ? (project.default_tuning_bpm || '') : '';
+    state.draftRating = 0;
+    paintBenchStars();
+    updatePreflight();
+    toast('Bancada limpa.', 'info');
+  }
+
+  function reuseExperiment(id) {
+    const experiment = state.experiments.find((e) => e.id === id);
+    if (!experiment) {
+      toast('Experimento não encontrado.', 'error');
+      return;
+    }
+    if (experiment.project_id !== state.activeProjectId) {
+      state.activeProjectId = experiment.project_id;
+      renderProjectSelect();
+      renderConstitution();
+      renderPalette();
+      renderHistory();
+      renderGrounding();
+    }
+    dom.stylePrompt.value = experiment.style_prompt || '';
+    dom.lyricsInput.value = experiment.lyrics_and_tags || '';
+    dom.engineSelect.value = ENGINES.includes(experiment.engine) ? experiment.engine : ENGINE_SUNO;
+    dom.tuningInput.value = experiment.tuning_bpm || '';
+    updatePreflight();
+    toast('Style, letra, motor e afinação carregados na bancada.', 'success');
+    dom.benchColumn.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function deleteExperiment(id) {
+    const experiment = state.experiments.find((e) => e.id === id);
+    if (!experiment) return;
+    if (!window.confirm('Excluir definitivamente este experimento?')) return;
+    state.experiments = state.experiments.filter((e) => e.id !== id);
+    saveExperiments();
+    renderHistory();
+    renderGrounding();
+    toast('Experimento excluído.', 'info');
+  }
+
+  function rateExperiment(id, rating) {
+    const experiment = state.experiments.find((e) => e.id === id);
+    if (!experiment) return;
+    experiment.rating = experiment.rating === rating ? 0 : rating;
+    saveExperiments();
+    renderHistory();
+    renderGrounding();
+  }
+
+  function addTag(category, value) {
+    if (!state.tags[category]) return;
+    const tag = String(value || '').trim();
+    if (!tag) {
+      toast('Digite uma tag antes de adicionar.', 'warn');
+      return;
+    }
+    const next = uniqueList([...state.tags[category], tag]);
+    if (next.length === state.tags[category].length) {
+      toast('Essa tag já existe na categoria.', 'info');
+      return;
+    }
+    state.tags[category] = next;
+    saveTags();
+    renderTagsModal();
+    renderTagLibrary();
+    toast('Tag adicionada em ' + category + '.', 'success');
+  }
+
+  function removeTag(category, index) {
+    if (!state.tags[category]) return;
+    const [removed] = state.tags[category].splice(index, 1);
+    if (!removed) return;
+    saveTags();
+    renderTagsModal();
+    renderTagLibrary();
+    toast('Tag "' + removed + '" removida.', 'info');
+  }
+
+  function openTagsModal() {
+    renderTagsModal();
+    openModal(dom.tagsModal);
+  }
+
+  function exportTags() {
+    downloadJSON('promptstudio-tags-' + todayISO() + '.json', state.tags);
+    toast('Pacote de tags exportado.', 'success');
+  }
+
+  function extractTagsPackage(data) {
+    if (!data || typeof data !== 'object') return null;
+    const source = data.tags && typeof data.tags === 'object' ? data.tags : data;
+    const normalized = normalizeTags(source);
+    const hasAny = TAG_CATEGORIES.some(({ key }) => Array.isArray(source[key]) && source[key].length);
+    return hasAny ? normalized : null;
+  }
+
+  function handleTagImportFile(event) {
+    const input = event.target;
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    readFileJSON(file).then((data) => {
+      const parsed = extractTagsPackage(data);
+      if (!parsed) {
+        toast('JSON de tags inválido: nenhuma categoria reconhecida.', 'error');
+        return;
+      }
+      state.pendingTagImport = parsed;
+      dom.importTagsName.textContent = file.name;
+      const mergeRadio = dom.tagImportOptions.querySelector('input[value="merge"]');
+      if (mergeRadio) mergeRadio.checked = true;
+      openModal(dom.importTagsModal);
+    }).catch(() => {
+      toast('Não foi possível ler o JSON de tags.', 'error');
+    });
+  }
+
+  function confirmTagImport() {
+    if (!state.pendingTagImport) {
+      closeModal(dom.importTagsModal);
+      return;
+    }
+    const checked = dom.tagImportOptions.querySelector('input[name="tagImportMode"]:checked');
+    const mode = checked ? checked.value : 'merge';
+    TAG_CATEGORIES.forEach(({ key }) => {
+      if (mode === 'merge') {
+        state.tags[key] = uniqueList([...(state.tags[key] || []), ...(state.pendingTagImport[key] || [])]);
+      } else {
+        state.tags[key] = uniqueList(state.pendingTagImport[key] || []);
+      }
+    });
+    saveTags();
+    renderTagsModal();
+    renderTagLibrary();
+    updatePreflight();
+    state.pendingTagImport = null;
+    closeModal(dom.importTagsModal);
+    toast(mode === 'merge' ? 'Pacote mesclado sem duplicatas.' : 'Biblioteca substituída pelo pacote.', 'success');
+  }
+
+  function restoreDefaultTags() {
+    if (!window.confirm('Substituir todas as tags atuais pela base nativa DEFAULT_TAGS_DATABASE?')) return;
+    state.tags = seedTags();
+    saveTags();
+    renderTagsModal();
+    renderTagLibrary();
+    updatePreflight();
+    toast('Base nativa de tags restaurada.', 'success');
+  }
+
+  function exportBackup() {
+    const payload = {
+      app: 'PromptStudio & Audio Lab',
+      version: 'promptstudio_mvp_v1',
+      exported_at: stamp(),
+      projects: state.projects,
+      experiments: state.experiments,
+      tags: state.tags,
+      budget: state.budget
+    };
+    downloadJSON('promptstudio-backup-' + todayISO() + '.json', payload);
+    toast('Backup completo exportado.', 'success');
+  }
+
+  function handleBackupFile(event) {
+    const input = event.target;
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    readFileJSON(file).then((data) => {
+      if (!data || typeof data !== 'object') throw new Error('invalid');
+      const projectsRaw = Array.isArray(data.projects) ? data.projects : data[KEYS.projects];
+      const experimentsRaw = Array.isArray(data.experiments) ? data.experiments : data[KEYS.experiments];
+      const tagsRaw = data.tags || data[KEYS.tags] || null;
+      if (!Array.isArray(projectsRaw) || !Array.isArray(experimentsRaw)) throw new Error('invalid');
+
+      const projects = projectsRaw.map(normalizeProject).filter(Boolean);
+      if (!projects.length) throw new Error('invalid');
+
+      if (!window.confirm('Substituir todos os dados locais (projetos, experimentos, tags e orçamento) por este backup?')) return;
+
+      const ids = new Set(projects.map((p) => p.id));
+      state.projects = projects;
+      state.experiments = experimentsRaw.map(normalizeExperiment).filter(Boolean).map((experiment) => ({
+        ...experiment,
+        project_id: ids.has(experiment.project_id) ? experiment.project_id : projects[0].id
+      }));
+      state.tags = normalizeTags(tagsRaw);
+      if (tagsAreEmpty(state.tags)) state.tags = seedTags();
+      state.budget = normalizeBudget(data.budget || data[KEYS.budget] || null);
+      ensureBudgetFreshSilent();
+      state.activeProjectId = projects[0].id;
+
+      persistAll();
+      renderAll();
+      dom.tuningInput.value = activeProject() ? (activeProject().default_tuning_bpm || '') : '';
+      updatePreflight();
+      toast('Backup importado: ' + state.projects.length + ' projeto(s) e ' + state.experiments.length + ' experimento(s).', 'success');
+    }).catch(() => {
+      toast('Backup inválido: selecione um JSON exportado por este app.', 'error');
+    });
+  }
+
+  function bindEvents() {
+    dom.projectSelect.addEventListener('change', handleProjectChange);
+    dom.btnNewProject.addEventListener('click', () => openProjectModal(null));
+    dom.btnEditProject.addEventListener('click', () => openProjectModal(activeProject()));
+    dom.btnEditProjectConst.addEventListener('click', () => openProjectModal(activeProject()));
+    dom.projectForm.addEventListener('submit', handleProjectSubmit);
+
+    dom.modeQuick.addEventListener('click', () => setMode('quick'));
+    dom.modeStudio.addEventListener('click', () => setMode('studio'));
+
+    dom.engineSelect.addEventListener('change', updatePreflight);
+    dom.stylePrompt.addEventListener('input', updatePreflight);
+    dom.lyricsInput.addEventListener('input', updatePreflight);
+    scopeChecks.forEach((check) => check.addEventListener('change', updatePreflight));
+
+    dom.btnCopyStyle.addEventListener('click', () => copyText(dom.stylePrompt.value, 'Style Prompt'));
+    dom.btnCopyLyrics.addEventListener('click', () => copyText(dom.lyricsInput.value, 'Letra/Tags'));
+    dom.btnCopyContext.addEventListener('click', () => copyText(buildContextPackage(), 'Contexto + Base'));
+
+    dom.btnOpenPatch.addEventListener('click', () => {
+      dom.patchText.value = '';
+      openModal(dom.patchModal);
+      setTimeout(() => dom.patchText.focus(), 60);
+    });
+    dom.btnApplyPatch.addEventListener('click', () => {
+      if (applyPatch(dom.patchText.value)) closeModal(dom.patchModal);
+    });
+
+    dom.btnSaveExperiment.addEventListener('click', saveExperiment);
+    dom.btnClearBench.addEventListener('click', clearBench);
+
+    dom.benchStars.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-bench-star]');
+      if (!button) return;
+      const value = Number(button.dataset.benchStar);
+      state.draftRating = state.draftRating === value ? 0 : value;
+      paintBenchStars();
+    });
+    dom.btnClearRating.addEventListener('click', () => {
+      state.draftRating = 0;
+      paintBenchStars();
+    });
+
+    dom.paletteChips.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-palette-tag]');
+      if (button) appendTagToStyle(button.dataset.paletteTag);
+    });
+
+    dom.metaChips.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-insert-tag]');
+      if (button) insertAtCursor(dom.lyricsInput, button.dataset.insertTag);
+    });
+    dom.vocalChips.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-insert-tag]');
+      if (button) insertAtCursor(dom.lyricsInput, button.dataset.insertTag);
+    });
+
+    dom.tagFinderInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      const value = dom.tagFinderInput.value.trim();
+      if (!value) return;
+      appendTagToStyle(value);
+      dom.tagFinderInput.value = '';
+    });
+    dom.tagFinderInput.addEventListener('change', () => {
+      const value = dom.tagFinderInput.value.trim();
+      if (!value) return;
+      const options = Array.from(dom.styleDatalist.options || []).map((option) => option.value);
+      if (options.includes(value)) {
+        appendTagToStyle(value);
+        dom.tagFinderInput.value = '';
+      }
+    });
+
+    dom.historySearch.addEventListener('input', renderHistory);
+    dom.historyList.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.dataset.id;
+      const action = button.dataset.action;
+      if (action === 'rate') {
+        rateExperiment(id, Number(button.dataset.rating));
+      } else if (action === 'reuse') {
+        reuseExperiment(id);
+      } else if (action === 'delete') {
+        deleteExperiment(id);
+      } else if (action === 'copy-style' || action === 'copy-lyrics') {
+        const experiment = state.experiments.find((e) => e.id === id);
+        if (!experiment) return;
+        if (action === 'copy-style') copyText(experiment.style_prompt || '', 'Style Prompt');
+        else copyText(experiment.lyrics_and_tags || '', 'Letra/Tags');
+      }
+    });
+
+    dom.btnTags.addEventListener('click', openTagsModal);
+    dom.btnExportTags.addEventListener('click', exportTags);
+    dom.btnImportTags.addEventListener('click', () => dom.tagImportFile.click());
+    dom.tagImportFile.addEventListener('change', handleTagImportFile);
+    dom.btnConfirmTagImport.addEventListener('click', confirmTagImport);
+    dom.btnRestoreTags.addEventListener('click', restoreDefaultTags);
+
+    dom.tagsGrid.addEventListener('click', (event) => {
+      const addButton = event.target.closest('[data-action="add-tag"]');
+      if (addButton) {
+        const category = addButton.dataset.cat;
+        const input = document.getElementById('tag-add-' + category);
+        if (input) addTag(category, input.value);
+        return;
+      }
+      const removeButton = event.target.closest('[data-action="del-tag"]');
+      if (removeButton) {
+        removeTag(removeButton.dataset.cat, Number(removeButton.dataset.index));
+      }
+    });
+    dom.tagsGrid.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      const input = event.target.closest('[data-tag-input]');
+      if (!input) return;
+      event.preventDefault();
+      addTag(input.dataset.tagInput, input.value);
+    });
+
+    dom.btnExportBackup.addEventListener('click', exportBackup);
+    dom.btnImportBackup.addEventListener('click', () => dom.backupFile.click());
+    dom.backupFile.addEventListener('change', handleBackupFile);
+
+    document.querySelectorAll('[data-close-modal]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const modal = button.closest('.modal');
+        closeModal(modal);
+      });
+    });
+    document.querySelectorAll('.modal').forEach((modal) => {
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) closeModal(modal);
+      });
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      const openModals = Array.from(document.querySelectorAll('.modal')).filter((m) => !m.classList.contains('hidden'));
+      if (openModals.length) closeModal(openModals[openModals.length - 1]);
+    });
+
+    window.addEventListener('resize', () => {
+      dom.historyList.classList.toggle('scroll-thin', true);
+    });
+  }
+
+  function buildBenchStars() {
+    dom.benchStars.innerHTML = '';
+    for (let i = 1; i <= 5; i += 1) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.benchStar = String(i);
+      button.textContent = '★';
+      button.setAttribute('aria-label', 'Nota ' + i);
+      button.title = 'Nota ' + i;
+      dom.benchStars.appendChild(button);
+    }
+    paintBenchStars();
+  }
+
+  buildBenchStars();
+  init();
+})();
+</script>
+</body>
+</html>
